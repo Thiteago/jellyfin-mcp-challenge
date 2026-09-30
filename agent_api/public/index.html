@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jellyfin Agent</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --bubble-user: #2f6feb;
+    --bubble-assistant: #232733;
+    --text: #e8eaed;
+    --muted: #8b8f9a;
+    --accent: #6ee7b7;
+    --border: #2a2e38;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--panel);
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0;
+    font-weight: 600;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge legacy */
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .msg {
+    display: flex;
+    flex-direction: column;
+    max-width: 80%;
+  }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+  #chat::-webkit-scrollbar { display: none; } /* Chrome/Safari/Edge */
+  .bubble {
+    padding: 10px 14px;
+    border-radius: 14px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    font-size: 14px;
+  }
+  .msg.user .bubble {
+    background: var(--bubble-user);
+    color: white;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.assistant .bubble {
+    background: var(--bubble-assistant);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .tool-pill {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(110, 231, 183, 0.12);
+    color: var(--accent);
+    border: 1px solid rgba(110, 231, 183, 0.35);
+    white-space: nowrap;
+  }
+  .error .bubble {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+  }
+  .typing {
+    display: flex;
+    gap: 4px;
+    padding: 12px 14px;
+  }
+  .typing span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    animation: bounce 1.2s infinite ease-in-out;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.15s; }
+  .typing span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+  form {
+    display: flex;
+    gap: 10px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  form .inner {
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    gap: 10px;
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    background: #10131a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    max-height: 120px;
+  }
+  textarea:focus { outline: 1px solid var(--bubble-user); }
+  button {
+    background: var(--bubble-user);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 0 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .empty-hint {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    margin-top: 40px;
+    line-height: 1.6;
+  }
+  .empty-hint code {
+    background: var(--panel);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>🎬 Jellyfin Agent</h1>
+    <span class="subtitle">Gemini + MCP tools</span>
+  </header>
+
+  <div id="chat"></div>
+
+  <form id="form">
+    <div class="inner">
+      <textarea id="input" placeholder="Pergunta algo tipo &quot;sorteia um filme de terror&quot;..." rows="1"></textarea>
+      <button id="send" type="submit">Enviar</button>
+    </div>
+  </form>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+
+    function renderEmptyHint() {
+      chat.innerHTML = `<div class="empty-hint">
+        Manda uma pergunta pro agente. Ele decide sozinho se precisa usar alguma tool do MCP server.<br>
+        Exemplos: <code>sorteia um filme de comédia</code> · <code>quem está assistindo agora?</code> · <code>marca Green Book como favorito</code>
+      </div>`;
+    }
+    renderEmptyHint();
+
+    function scrollToBottom() {
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function addUserMessage(text) {
+      if (chat.querySelector('.empty-hint')) chat.innerHTML = '';
+      const el = document.createElement('div');
+      el.className = 'msg user';
+      el.innerHTML = `<div class="bubble"></div>`;
+      el.querySelector('.bubble').textContent = text;
+      chat.appendChild(el);
+      scrollToBottom();
+    }
+
+    function addTypingIndicator() {
+      const el = document.createElement('div');
+      el.className = 'msg assistant';
+      el.id = 'typing-indicator';
+      el.innerHTML = `<div class="bubble typing"><span></span><span></span><span></span></div>`;
+      chat.appendChild(el);
+      scrollToBottom();
+      return el;
+    }
+
+    function addAssistantMessage(text, toolCalls, isError) {
+      const el = document.createElement('div');
+      el.className = 'msg assistant' + (isError ? ' error' : '');
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+      el.appendChild(bubble);
+
+      if (toolCalls && toolCalls.length > 0) {
+        const pills = document.createElement('div');
+        pills.className = 'tools';
+        toolCalls.forEach(tc => {
+          const pill = document.createElement('span');
+          pill.className = 'tool-pill';
+          pill.textContent = '🔧 ' + tc.name;
+          pill.title = JSON.stringify(tc.arguments || {});
+          pills.appendChild(pill);
+        });
+        el.appendChild(pills);
+      }
+
+      chat.appendChild(el);
+      scrollToBottom();
+    }
+
+    async function sendQuestion(question) {
+      addUserMessage(question);
+      const typingEl = addTypingIndicator();
+      sendBtn.disabled = true;
+      input.disabled = true;
+
+      try {
+        const res = await fetch('/api/questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question })
+        });
+        const data = await res.json();
+        typingEl.remove();
+
+        if (!res.ok) {
+          addAssistantMessage(data.error || 'Erro desconhecido', null, true);
+        } else {
+          addAssistantMessage(data.answer, data.tool_calls, false);
+        }
+      } catch (err) {
+        typingEl.remove();
+        addAssistantMessage('Não consegui falar com o agent_api: ' + err.message, null, true);
+      } finally {
+        sendBtn.disabled = false;
+        input.disabled = false;
+        input.focus();
+      }
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const question = input.value.trim();
+      if (!question) return;
+      input.value = '';
+      input.style.height = 'auto';
+      sendQuestion(question);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    });
+
+    input.focus();
+  </script>
+</body>
+</html>

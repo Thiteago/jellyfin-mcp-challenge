@@ -1,0 +1,8 @@
+# Belt-and-suspenders on top of mcp_server/.gitignore and agent_api/.gitignore
+# (each already ignores its own .env*, storage/*.sqlite3, config/*.key).
+**/.env
+**/.env.*
+!**/.env.example
+
+.ruby-lsp/
+.DS_Store
